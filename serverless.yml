@@ -1,0 +1,32 @@
+service: node-serverless-app
+
+custom:
+  secrets: ${file(serviceAccountKey.json)}
+
+provider: 
+  name: aws 
+  runtime: nodejs10.x
+  stage: ${env:STAGE}
+  region: eu-central-1 
+  environment:
+    MONDAY_TOKEN: ${env:MONDAY_TOKEN}
+    DEFAULT_PREFIX: ${env:DEFAULT_PREFIX}
+    DB_URL: ${env:DB_URL}
+
+functions: 
+  app: 
+    handler: app.handler 
+    events: 
+      - http:
+          path: /monday/unfurl
+          method: get
+      - http: 
+          path: /logkeeper/unfurl 
+          method: get
+      - http: 
+          path: /unfurl
+          method: get
+
+plugins:
+  - serverless-offline
+  - serverless-dotenv-plugin
