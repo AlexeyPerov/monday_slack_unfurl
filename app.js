@@ -1,5 +1,5 @@
-var admin = require("firebase-admin");
-var serviceAccount = require("./serviceAccountKey.json");
+const admin = require("firebase-admin");
+const serviceAccount = require("./serviceAccountKey.json");
 
 const fetch = require("node-fetch");
 
@@ -10,41 +10,52 @@ const sls = require("serverless-http");
 const express = require("express");
 const app = express();
 
-var multer = require('multer');
-var upload = multer();
+const multer = require('multer');
+const upload = multer();
 
 // for parsing application/json
 app.use(express.json());
 
 // for parsing application/x-www-form-urlencoded
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({extended: true}));
 
 // for parsing multipart/form-data
 app.use(upload.array());
 app.use(express.static('public'));
 
-const defaultPrefix = process.env.DEFAULT_PREFIX;
-
 app.get("/unfurl", async (req, res) => {
     const link = req.query.link;
 
-    var result = "hi it's " + link;
-    res.status(200).send(result);
+    if (link.contains(process.env.MONDAY_DOMAIN)) {
+        let result = await unfurlMondayLink(link);
+        res.status(200).send(result);
+    } else if (link.contains(process.env.LOGKEEPER_DOMAIN)) {
+        let result = await unfurlLogKeeperLink(link);
+        res.status(200).send(result);
+    } else {
+        res.status(501).send();
+    }
 });
 
 app.get("/monday/unfurl", async (req, res) => {
     const link = req.query.link;
-
-    var result = "hi it's " + link;
+    let result = await unfurlMondayLink(link);
     res.status(200).send(result);
 });
 
 app.get("/logkeeper/unfurl", async (req, res) => {
     const link = req.query.link;
-
-    var result = "hi it's " + link;
+    let result = await unfurlLogKeeperLink(link);
     res.status(200).send(result);
 });
+
+async function unfurlMondayLink(link) {
+
+}
+
+async function unfurlLogKeeperLink(link) {
+
+}
 
 async function fetchMondayQuery(query) {
     let response = await fetch("https://api.monday.com/v2", {

@@ -105,3 +105,6 @@ dist
 
 # Firebase Secret File
 serviceAccountKey.json
+
+# .idea
+**/.idea/**
