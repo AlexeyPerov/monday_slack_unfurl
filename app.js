@@ -24,7 +24,6 @@ app.use(upload.array());
 app.use(express.static('public'));
 
 app.get('/unfurl', async (req, res) => {
-
     try {
         const link = req.query.link;
         if (link.includes(process.env.MONDAY_DOMAIN)) {
@@ -109,7 +108,30 @@ async function unfurlLogKeeperLink(link) {
         throw 'Unable to find logKeeper id';
     }
 
-    return id;
+    connectFirebase();
+
+    const db = admin.firestore();
+
+    const projects = await db.collection('projects').get();
+
+    for (const doc of projects.docs) {
+        let name = doc.get('name');
+        name = replaceAll(name,' ', '_');
+        name = name.toLowerCase() + '_logs';
+
+        let logInfo = db.collection(name).doc(id);
+        let logInfoQuery = await logInfo.get();
+
+        if (logInfoQuery.exists) {
+            const data = logInfoQuery.data();
+
+            return `Log: ${data['title']}
+                    Created at: ${data['createdAt'].toDate().toDateString()}
+                    Author:${data['author']}`;
+        }
+    }
+
+    throw 'Unable to find log info';
 }
 
 async function fetchMondayQuery(query) {
@@ -133,10 +155,13 @@ async function fetchMondayQuery(query) {
 
 function connectFirebase() {
     admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-        databaseURL: process.env.DB_URL
+        credential: admin.credential.cert(serviceAccount)
     });
 
+}
+
+function replaceAll(str, find, replace) {
+    return str.replace(new RegExp(find, 'g'), replace);
 }
 
 module.exports.handler = sls(app);
