@@ -91,7 +91,7 @@ async function unfurlMondayLink(link) {
         }
     }
 
-    const boardQuery = '{boards(limit:1, ids:[' + board + '])'
+    const boardQuery = '{ boards(limit:1, ids:[' + board + '])'
         + ' { name } }';
 
     const boardResult = await fetchMondayQuery(boardQuery);
@@ -99,7 +99,13 @@ async function unfurlMondayLink(link) {
 
     const boardOutput = `Board: ${boardInfo.name}`;
 
-    return `${pulse}\nat\n${boardOutput}`;
+    const pulseQuery = '{ items (ids: ' + pulse + ') { name } }';
+    const pulseResult = await fetchMondayQuery(pulseQuery);
+
+    const itemInfo = pulseResult.data.items[0];
+    const pulseOutput = itemInfo.name;
+
+    return `${pulseOutput}\nat\n${boardOutput}`;
 }
 
 // Parses strings like: https://domain/#/details?id=zEVVt0ltW65vdoppV0Eg
