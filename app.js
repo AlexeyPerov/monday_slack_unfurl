@@ -91,7 +91,15 @@ async function unfurlMondayLink(link) {
         }
     }
 
-    return `${board} -> ${pulse}`;
+    const boardQuery = '{boards(limit:1, ids:[' + board + '])'
+        + ' { name } }';
+
+    const boardResult = await fetchMondayQuery(boardQuery);
+    const boardInfo = boardResult.data.boards[0];
+
+    const boardOutput = `Board: ${boardInfo.name}`;
+
+    return `${pulse}\nat\n${boardOutput}`;
 }
 
 // Parses strings like: https://domain/#/details?id=zEVVt0ltW65vdoppV0Eg
