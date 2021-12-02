@@ -7,8 +7,6 @@ provider:
   region: eu-central-1 
   environment:
     MONDAY_TOKEN: ${env:MONDAY_TOKEN}
-    DEFAULT_PREFIX: ${env:DEFAULT_PREFIX}
-    DB_URL: ${env:DB_URL}
 
 functions: 
   app: 
