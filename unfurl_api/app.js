@@ -27,7 +27,7 @@ app.get('/monday/unfurl', async (req, res) => {
         res.status(200).send(result);
     } catch (e) {
         console.log(e);
-        res.status(501).send();
+        res.status(404).send();
     }
 });
 
@@ -84,7 +84,16 @@ async function unfurlMondayLink(link) {
         const pulseQuery = '{ items (ids: ' + pulse + ') { name } }';
         const pulseResult = await fetchMondayQuery(pulseQuery);
 
+        if (pulseResult == null) {
+            throw `Unable to find ${pulse} in monday`;
+        }
+
         const itemInfo = pulseResult.data.items[0];
+
+        if (itemInfo == null) {
+            throw `Unable to find ${pulse} in monday`;
+        }
+
         pulseOutput = itemInfo.name;
     }
 
