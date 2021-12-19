@@ -1,12 +1,89 @@
+'use strict';
+
 require('dotenv').config();
 
-const slackEventsAPI = require('@slack/events-api');
 const { WebClient } = require('@slack/client');
 const keyBy = require('lodash.keyby');
 const omit = require('lodash.omit');
 const mapValues = require('lodash.mapvalues');
-const normalizePort = require('normalize-port');
 const fetch = require('node-fetch');
+
+const token = process.env.SLACK_VERIFICATION_TOKEN,
+    accessToken = process.env.SLACK_CLIENT_TOKEN;
+
+const sls = require('serverless-http');
+
+const express = require('express');
+const app = express();
+
+const multer = require('multer');
+const {ChatUnfurlArguments} = require("@slack/web-api/dist/methods");
+const upload = multer();
+
+// for parsing application/json
+app.use(express.json());
+
+// for parsing application/x-www-form-urlencoded
+app.use(express.urlencoded({extended: true}));
+
+// for parsing multipart/form-data
+app.use(upload.array());
+app.use(express.static('public'));
+
+// An API call to create a new pulse
+app.post("/monday-app-unfurl", async (req, res) => {
+    console.log('started');
+
+    if (!req.body) {
+        return res.sendStatus(400);
+    }
+
+    try {
+        const payload = req.body;
+
+        // verify necessary tokens are set in environment variables
+        if (!token || !accessToken) {
+            res.status(500).send('Tokens not set');
+            return;
+        }
+
+        // Verification Token validation to make sure that the request comes from Slack
+        if (token && token !== payload.token) {
+            res.status(401).send('Auth failed');
+            return;
+        }
+
+        console.log('type: ' + payload.type);
+
+        if (payload.type === "event_callback") {
+            const slack = new WebClient(accessToken);
+            const event = payload.event;
+
+            console.log(event);
+
+            try {
+                onLinkShared(slack, event);
+            } catch (e) {
+                console.error(e);
+                res.status(500).send(e);
+                return;
+            }
+
+            res.status(200).send();
+        }
+        // challenge sent by Slack when you first configure Events API
+        else if (payload.type === "url_verification") {
+            console.log('verification');
+            res.status(200).send(payload.challenge);
+        } else {
+            console.error("An unknown event type received.");
+            res.status(200).send("Unknown event type received.");
+        }
+    } catch (e) {
+        console.error(e);
+        res.status(500).send(e);
+    }
+});
 
 function messageUnfurlFromLink(link) {
     return getMondayUrlData(link.url)
@@ -67,89 +144,28 @@ function getMondayUrlData(url) {
     });
 }
 
-const slackEvents = slackEventsAPI.createSlackEventAdapter(process.env.SLACK_VERIFICATION_TOKEN);
-
-const slack = new WebClient(process.env.SLACK_CLIENT_TOKEN);
-
-// https://api.slack.com/events/link_shared
-slackEvents.on('link_shared', (event) => {
-    onLinkShared(event);
-});
-
-function onLinkShared(event) {
+function onLinkShared(slack, event) {
     Promise.allSettled(event.links.map(messageUnfurlFromLink))
         .then(results => {
             const filtered = results.filter(r => r.status === "fulfilled");
             Promise.all(filtered.map(x => x.value)).then(x => keyBy(x, 'url'))
                 .then(unfurls => mapValues(unfurls, x => omit(x, 'url')))
-                .then(unfurls => chatUnfurl(event, unfurls))
-                .catch(console.error);
+                //.then(unfurls => console.log(JSON.stringify(unfurls))) // test
+                .then(unfurls => {
+                    const args = {
+                        ts: event.message_ts,
+                        channel: event.channel,
+                        unfurls: unfurls
+                    };
+
+                    console.log('args: ' + JSON.stringify(args));
+
+                    return slack.chat.unfurl(args).then(r => console.log(JSON.stringify(r)))
+                        .catch(e => console.log(e));
+                })
+                .catch((e) => console.error(e));
         });
 
 }
 
-function chatUnfurl(event, unfurls) {
-    // https://api.slack.com/methods/chat.unfurl
-    slack.chat.unfurl(event.message_ts, event.channel, unfurls);
-}
-
-const slackEventsErrorCodes = slackEventsAPI.errorCodes;
-
-slackEvents.on('error', (error) => {
-    if (error.code === slackEventsErrorCodes.TOKEN_VERIFICATION_FAILURE) {
-        console.warn(`An unverified request was sent to the Slack events request URL: ${error.body}`);
-    } else {
-        console.error(error);
-    }
-});
-
-const port = normalizePort(process.env.PORT || '3000');
-slackEvents.start(port).then(() => {
-    console.log(`server listening on port ${port}`);
-});
-
-/*
-// Testing code
-const testEvent = {
-    token: "XXYYZZ",
-    team_id: "TXXXXXXXX",
-    api_app_id: "AXXXXXXXXX",
-    event: {
-        type: "link_shared",
-        channel: "Cxxxxxx",
-        is_bot_user_member: true,
-        user: "Uxxxxxxx",
-        message_ts: "123456789.9875",
-        unfurl_id: "C123456.123456789.987501.1b90fa1278528ce6e2f6c5c2bfa1abc9a41d57d02b29d173f40399c9ffdecf4b",
-        thread_ts: "123456621.1855",
-        source: "conversations_history",
-        links: [
-            {
-                domain: "domain.monday.com",
-                url: "https://domain.monday.com/boards/1802709835/views/37620753/pulses/1957128768"
-            },
-            {
-                domain: "domain.monday.com",
-                url: "https://domain.monday.com/boards/1802709835444"
-            },
-            {
-                domain: "domain.monday.com",
-                url: "https://domain.monday.com/boards/1802709835/views/37620753/pulses/1959492575?userId=10386480"
-            },
-            {
-                domain: "domain.monday.com",
-                url: "https://domain.monday.com/boards/1802709835"
-            },
-        ]
-    },
-    type: "event_callback",
-    authed_users: [
-        "UXXXXXXX1",
-        "UXXXXXXX2"
-    ],
-    event_id: "Ev08MFMKH6",
-    event_time: 123456789
-};
-
-onLinkShared(testEvent.event);
- */
+module.exports.handler = sls(app);

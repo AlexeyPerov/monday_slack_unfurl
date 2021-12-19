@@ -1,0 +1,28 @@
+service: node-unfurl-slack-app-serverless
+
+custom:
+  slack_enable_logging: true
+
+provider: 
+  name: aws
+  stackName: kometa-unfurl-app-stack
+  apiName: kometa-unfurl-app-api
+  runtime: nodejs14.x
+  stage: ${env:STAGE}
+  region: eu-central-1 
+  environment:
+    SLACK_VERIFICATION_TOKEN: ${env:SLACK_VERIFICATION_TOKEN}
+    SLACK_CLIENT_TOKEN: ${env:SLACK_CLIENT_TOKEN}
+    API_URL: ${env:API_URL}
+
+functions:
+  app:
+    handler: app.handler
+    events:
+      - http:
+          path: /monday-app-unfurl
+          method: post
+
+plugins:
+  - serverless-offline
+  - serverless-dotenv-plugin
