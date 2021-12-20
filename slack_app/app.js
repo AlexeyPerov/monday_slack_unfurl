@@ -17,7 +17,6 @@ const express = require('express');
 const app = express();
 
 const multer = require('multer');
-const {ChatUnfurlArguments} = require("@slack/web-api/dist/methods");
 const upload = multer();
 
 // for parsing application/json
@@ -62,14 +61,19 @@ app.post("/monday-app-unfurl", async (req, res) => {
             console.log(event);
 
             try {
-                onLinkShared(slack, event);
+                onLinkShared(slack, event)
+                    .then(r => res.status(200).send())
+                    .catch(e => {
+                        console.error(e);
+                        res.status(500).send(e);
+                    });
             } catch (e) {
                 console.error(e);
                 res.status(500).send(e);
                 return;
             }
 
-            res.status(200).send();
+
         }
         // challenge sent by Slack when you first configure Events API
         else if (payload.type === "url_verification") {
@@ -84,6 +88,28 @@ app.post("/monday-app-unfurl", async (req, res) => {
         res.status(500).send(e);
     }
 });
+
+function onLinkShared(slack, event) {
+    return Promise.allSettled(event.links.map(messageUnfurlFromLink))
+        .then(results => {
+            const filtered = results.filter(r => r.status === "fulfilled");
+            return Promise.all(filtered.map(x => x.value)).then(x => keyBy(x, 'url'))
+                .then(unfurls => mapValues(unfurls, x => omit(x, 'url')))
+                .then(unfurls => {
+                    const args = {
+                        ts: event.message_ts,
+                        channel: event.channel,
+                        unfurls: unfurls
+                    };
+
+                    console.log('args: ' + JSON.stringify(args));
+
+                    return slack.chat.unfurl(args).then(r => console.log(JSON.stringify(r)))
+                        .catch(e => console.error("Error:\n" + JSON.stringify(e)));
+                })
+                .catch((e) => console.error(e));
+        });
+}
 
 function messageUnfurlFromLink(link) {
     return getMondayUrlData(link.url)
@@ -100,16 +126,14 @@ function messageUnfurlFromLink(link) {
                             type: 'header',
                             text: {
                                 type: 'plain_text',
-                                text: data.pulse,
-                                emoji: true
+                                text: data.pulse
                             }
                         },
                         {
                             type: 'section',
                             text: {
                                 type: 'plain_text',
-                                text: data.board,
-                                emoji: true
+                                text: data.board
                             }
                         }
                     ],
@@ -122,8 +146,7 @@ function messageUnfurlFromLink(link) {
                             type: 'header',
                             text: {
                                 type: 'plain_text',
-                                text: data.board,
-                                emoji: true
+                                text: data.board
                             }
                         }
                     ],
@@ -133,10 +156,7 @@ function messageUnfurlFromLink(link) {
 }
 
 function getMondayUrlData(url) {
-    const finalUrl = process.env.API_URL + url;
-    return fetch(finalUrl).then(function(response) {
-        return response.json();
-    }).then(function(data) {
+    return unfurlMondayLink(url).then(function(data) {
         return data;
     }).catch(e => {
         console.error(e);
@@ -144,28 +164,101 @@ function getMondayUrlData(url) {
     });
 }
 
-function onLinkShared(slack, event) {
-    Promise.allSettled(event.links.map(messageUnfurlFromLink))
-        .then(results => {
-            const filtered = results.filter(r => r.status === "fulfilled");
-            Promise.all(filtered.map(x => x.value)).then(x => keyBy(x, 'url'))
-                .then(unfurls => mapValues(unfurls, x => omit(x, 'url')))
-                //.then(unfurls => console.log(JSON.stringify(unfurls))) // test
-                .then(unfurls => {
-                    const args = {
-                        ts: event.message_ts,
-                        channel: event.channel,
-                        unfurls: unfurls
-                    };
+// Parses strings like:
+// https://domain.monday.com/boards/1802709835/views/37620753/pulses/1957128768
+// https://domain.monday.com/boards/1802709835/views/37620753/pulses/1959492575?userId=10386480
+async function unfurlMondayLink(link) {
+    let board;
+    let pulse;
 
-                    console.log('args: ' + JSON.stringify(args));
+    const boardStr = 'boards';
+    const boardPos = link.indexOf(boardStr);
 
-                    return slack.chat.unfurl(args).then(r => console.log(JSON.stringify(r)))
-                        .catch(e => console.log(e));
-                })
-                .catch((e) => console.error(e));
-        });
+    if (boardPos === -1) {
+        throw `Unable to find ${boardStr}`;
+    }
 
+    const linkPart = link.substring(boardPos + boardStr.length + 1);
+    const boardEndPos = linkPart.indexOf('/');
+
+    if (boardEndPos !== -1) {
+        board = linkPart.substring(0, boardEndPos);
+    } else {
+        board = linkPart;
+    }
+
+    const pulsesStr = 'pulses';
+
+    const pulsePos = linkPart.indexOf(pulsesStr);
+
+    if (pulsePos !== -1) {
+        const pulseLinkPart = linkPart.substring(pulsePos + pulsesStr.length + 1);
+        const pulseBorderPos = pulseLinkPart.indexOf('?');
+
+        if (pulseBorderPos !== -1) {
+            pulse = pulseLinkPart.substring(0, pulseBorderPos);
+        } else {
+            pulse = pulseLinkPart;
+        }
+    }
+
+    let boardOutput;
+    let pulseOutput = '';
+
+    const boardQuery = '{ boards(limit:1, ids:[' + board + '])'
+        + ' { name } }';
+
+    const boardResult = await fetchMondayQuery(boardQuery);
+    const boardInfo = boardResult.data.boards[0];
+
+    boardOutput = boardInfo.name;
+
+    if (pulse != null && pulse.length > 0) {
+        const pulseQuery = '{ items (ids: ' + pulse + ') { name } }';
+        const pulseResult = await fetchMondayQuery(pulseQuery);
+
+        if (pulseResult == null) {
+            throw `Unable to find ${pulse} in monday`;
+        }
+
+        const itemInfo = pulseResult.data.items[0];
+
+        if (itemInfo == null) {
+            throw `Unable to find ${pulse} in monday`;
+        }
+
+        pulseOutput = itemInfo.name;
+    }
+
+    let result = new Unfurl()
+    result.pulse = pulseOutput;
+    result.board = boardOutput;
+
+    return result;
+}
+
+async function fetchMondayQuery(query) {
+    let response = await fetch('https://api.monday.com/v2', {
+        method: 'post',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': process.env.MONDAY_TOKEN
+        },
+        body: JSON.stringify({
+            'query': query
+        })
+    });
+
+    if (!response.ok) {
+        throw new Error('HTTP error, status: ' + response.status);
+    } else {
+        return await response.json();
+    }
+}
+
+class Unfurl {
+    board;
+    pulse;
 }
 
 module.exports.handler = sls(app);
