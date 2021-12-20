@@ -29,10 +29,8 @@ app.use(express.urlencoded({extended: true}));
 app.use(upload.array());
 app.use(express.static('public'));
 
-// An API call to create a new pulse
+// An API for Slack
 app.post("/monday-app-unfurl", async (req, res) => {
-    console.log('started');
-
     if (!req.body) {
         return res.sendStatus(400);
     }
